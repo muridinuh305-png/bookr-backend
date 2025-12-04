@@ -1,92 +1,55 @@
 const express = require("express");
 const Stripe = require("stripe");
 const bodyParser = require("body-parser");
-
 const app = express();
-
-// Use raw body for webhooks
-app.post("/webhook", bodyParser.raw({ type: "application/json" }), (req, res) => {
-  const sig = req.headers["stripe-signature"];
-  const stripe = Stripe(process.env.STRIPE_SECRET_KEY);
-
-  let event;
-
-  try {
-    event = stripe.webhooks.constructEvent(
-      req.body,
-      sig,
-      process.env.STRIPE_WEBHOOK_SECRET
-    );
-  } catch (err) {
-    console.log("Webhook error:", err.message);
-    return res.status(400).send("Webhook error");
-  }
-
-  const data = event.data.object;
-
-  if (event.type === "payment_intent.succeeded") {
-    console.log("Payment successful:", data.id);
-  }
-
-  if (event.type === "account.updated") {
-    console.log("Connected account updated:", data.id);
-  }
-
-  res.json({ received: true });
+// ✅ Home route
+app.get("/", (req, res) => {
+  res.send("✅ Bookr backend is running");
 });
 
-// Normal API JSON routes
-app.use(express.json());
+// ✅ Health check
+app.get("/healthz", (req, res) => {
+  res.json({ status: "ok" });
+});
 
-const stripe = Stripe(process.env.STRIPE_SECRET_KEY);
+// ✅ Stripe webhook (RAW body required)
+app.post(
+  "/webhook",
+  bodyParser.raw({ type: "application/json" }),
+  (req, res) => {
+    const sig = req.headers["stripe-signature"];
+    const stripe = Stripe(process.env.STRIPE_SECRET_KEY);
 
-// ✅ CUSTOMER MAKES PAYMENT
-app.post("/create-payment", async (req, res) => {
-  const { amount, barberStripeId } = req.body;
+    let event;
 
-  try {
-    const paymentIntent = await stripe.paymentIntents.create({
-      amount,
-      currency: "usd",
-      application_fee_amount: Math.round(amount * 0.1), // your % cut
-      transfer_data: {
-        destination: barberStripeId
-      }
-    });
+    try {
+      event = stripe.webhooks.constructEvent(
+        req.body,
+        sig,
+        process.env.STRIPE_WEBHOOK_SECRET
+      );
+    } catch (err) {
+      console.error("Webhook signature error:", err.message);
+      return res.status(400).send(`Webhook Error: ${err.message}`);
+    }
 
-    res.json({ clientSecret: paymentIntent.client_secret });
-  } catch (err) {
-    res.status(400).json({ error: err.message });
+    const data = event.data.object;
+
+    // ✅ Handle events
+    if (event.type === "payment_intent.succeeded") {
+      console.log("✅ Payment successful:", data.id);
+    }
+
+    if (event.type === "account.updated") {
+      console.log("✅ Connected account updated:", data.id);
+    }
+
+    res.json({ received: true });
   }
-});
+);
 
-// ✅ BARBER CONNECT STRIPE
-app.get("/connect-stripe", async (req, res) => {
-  const account = await stripe.accounts.create({ type: "express" });
-
-  const accountLink = await stripe.accountLinks.create({
-    account: account.id,
-    refresh_url: "https://yourapp.com/reauth",
-    return_url: "https://yourapp.com/success",
-    type: "account_onboarding"
-  });
-
-  res.json({ url: accountLink.url, stripeId: account.id });
-});
-
-// ✅ SUBSCRIPTIONS
-app.post("/subscribe-barber", async (req, res) => {
-  const { customerId } = req.body;
-
-  const sub = await stripe.subscriptions.create({
-    customer: customerId,
-    items: [{ price: process.env.SUBSCRIPTION_PRICE_ID }],
-    trial_period_days: 30
-  });
-
-  res.json(sub);
-});
-
-app.listen(process.env.PORT || 4242, () => {
-  console.log("Backend running");
+// ✅ Start server
+const PORT = process.env.PORT || 10000;
+app.listen(PORT, () => {
+  console.log("✅ Backend running on port", PORT);
 });
